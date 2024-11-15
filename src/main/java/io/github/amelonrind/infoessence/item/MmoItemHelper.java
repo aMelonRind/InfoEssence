@@ -1,14 +1,14 @@
 package io.github.amelonrind.infoessence.item;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.*;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Optional;
 
 @SuppressWarnings("unused")
 public class MmoItemHelper {
@@ -24,6 +24,11 @@ public class MmoItemHelper {
     @Nullable
     private NbtElement getMmoNbt(@NotNull String key) {
         return nbt.get(key.startsWith("HSTRY_") ? key : "MMOITEMS_" + key);
+    }
+
+    @Nullable
+    public String getType() {
+        return getString("ITEM_TYPE");
     }
 
     @Nullable
@@ -52,39 +57,46 @@ public class MmoItemHelper {
         else return null;
     }
 
-    @Nullable
-    public JsonObject getJson(String key) {
-        String str = getString(key);
-        if (str == null) return null;
-        try {
-            return JsonParser.parseString(str).getAsJsonObject();
-        } catch (JsonSyntaxException | IllegalStateException ignore) {}
-        return null;
+    private Optional<JsonObject> getJson(String key) {
+        return Optional.ofNullable(getString(key))
+                .map(str -> {
+                    try {
+                        return JsonParser.parseString(str);
+                    } catch (JsonSyntaxException e) {
+                        return null;
+                    }
+                })
+                .filter(JsonElement::isJsonObject)
+                .map(JsonElement::getAsJsonObject);
     }
 
     @Nullable
     public Double getDblOGStory(String key) {
-        JsonObject o = getJson("HSTRY_" + key);
-        if (o == null) return null;
         // sample: {"Stat":"PHYSICAL_DAMAGE","OGStory":[{"MMOITEMS_PHYSICAL_DAMAGE_ñdbl":15.9014}]}
-        try {
-            return o.getAsJsonArray("OGStory")
-                    .get(0)
-                    .getAsJsonObject()
-                    .get("MMOITEMS_" + key + "_ñdbl")
-                    .getAsDouble();
-        } catch (Throwable ignore) {}
-        return null;
+        return getJson("HSTRY_" + key)
+                .map(j -> j.get("OGStory"))
+                .filter(JsonElement::isJsonArray)
+                .map(JsonElement::getAsJsonArray)
+                .map(j -> j.get(0))
+                .filter(JsonElement::isJsonObject)
+                .map(JsonElement::getAsJsonObject)
+                .map(j -> j.get("MMOITEMS_" + key + "_ñdbl"))
+                .filter(JsonElement::isJsonPrimitive)
+                .map(JsonElement::getAsJsonPrimitive)
+                .filter(JsonPrimitive::isNumber)
+                .map(JsonPrimitive::getAsDouble)
+                .orElse(null);
     }
 
     public int getRefines() {
-        JsonObject o = getJson("UPGRADE");
-        if (o == null) return 0;
         // sample: {"Template":"default","Workbench":false,"Destroy":false,"Level":15,"Max":15,"Min":0,"Success":0.0}
-        try {
-            return o.get("Level").getAsInt();
-        } catch (Throwable ignore) {}
-        return 0;
+        return getJson("UPGRADE")
+                .map(j -> j.get("Level"))
+                .filter(JsonElement::isJsonPrimitive)
+                .map(JsonElement::getAsJsonPrimitive)
+                .filter(JsonPrimitive::isNumber)
+                .map(JsonPrimitive::getAsInt)
+                .orElse(0);
     }
 
 }

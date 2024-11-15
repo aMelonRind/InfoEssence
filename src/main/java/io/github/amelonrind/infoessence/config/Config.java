@@ -30,6 +30,9 @@ public class Config {
     @SerialEntry
     public boolean enabled = true;
 
+    @SerialEntry(comment = "If the parser should check for MMOItem id first.")
+    public boolean checkMmoIdFirst = true;
+
     @SerialEntry(comment = "Whether to display overall percentage in item name.")
     public boolean displayInName = true;
 
@@ -62,10 +65,10 @@ public class Config {
             .put("格擋機率", new MmoStatFetcher("BLOCK_RATING"))
             .build();
 
-    @SerialEntry(comment = "The table for ranges, structured as Map<mmoItemId, Map<attrName, Range(double, double)>>, " +
+    @SerialEntry(comment = "The table for ranges, structured as Map<\"mmoItemType:mmoItemId\", Map<attrName, Range(double, double)>>, " +
             "this has higher priority than rangeRegex.")
     public Map<String, Map<String, Range>> rangeTable = Map.of(
-            "OBSIDIAN_SHIELD", Map.of(
+            "SHIELD:OBSIDIAN_SHIELD", Map.of(
                     "攻擊傷害", Range.minmax(4.9, 7.1),
                     "防禦力", Range.minmax(8, 12),
                     "物理傷害減免", Range.minmax(14, 26),
@@ -76,7 +79,7 @@ public class Config {
     @SerialEntry(comment = "The regex for stat ranges. Required named groups: name, min, max.")
     public String rangeRegex = "^(?<name>.+): (?<min>-?\\d+(?:\\.\\d+)?) -> (?<max>-?\\d+(?:\\.\\d+)?)$";
 
-    @SerialEntry(comment = "A name table for naming mistakes (range name -> stat name)")
+    @SerialEntry(comment = "A name table for naming mistakes (range name -> stat name).")
     public Map<String, String> nameCorrections = new HashMap<>();
 
     @SerialEntry(comment = "Whether to display in the lore if there's only 1 possible attribute.")

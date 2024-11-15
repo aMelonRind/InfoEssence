@@ -33,8 +33,8 @@ public class InfoEssence implements ClientModInitializer {
         try {
             ItemStat.generateParser(Config.get());
         } catch (Throwable e) {
-            logTranslatableChat("generateParserFailed");
-            LOGGER.error(e);
+            logTranslatableChat("generateParserFailed", e.getMessage());
+            LOGGER.error("Failed to generate parser: {}", e.getMessage(), e);
         }
     }
 

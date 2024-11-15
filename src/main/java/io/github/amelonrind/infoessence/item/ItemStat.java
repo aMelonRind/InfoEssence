@@ -33,14 +33,12 @@ public class ItemStat {
     private ItemStat() {}
 
     public static void process(ItemStack stack) {
-//        if (!Config.get().enabled) return;
-        synchronized (checked) {
-            if (checked.add(stack)) {
-                try {
-                    parser.accept(stack);
-                } catch (Throwable e) {
-                    InfoEssence.LOGGER.error(e);
-                }
+        if (!Config.get().enabled) return;
+        if (checked.add(stack)) {
+            try {
+                parser.accept(stack);
+            } catch (Throwable e) {
+                InfoEssence.LOGGER.error(e);
             }
         }
     }
@@ -50,165 +48,175 @@ public class ItemStat {
     }
 
     public static void generateParser(Config cfg) throws MissingGroupException {
-        synchronized (checked) {
-            try {
-                boolean displayInName = cfg.displayInName;
-                boolean displayInLore = cfg.displayInLore;
-                if (!displayInName && !displayInLore) {
-                    parser = Consumers.nop();
-                    return;
-                }
-                boolean checkRefines = cfg.checkRefines;
-                double refineMultiplier = cfg.refineMultiplier;
-                Pattern statRegex = Pattern.compile(cfg.statRegex);
-                {
-                    Map<String, Integer> groups = statRegex.namedGroups();
-                    if (!groups.containsKey("name") || !groups.containsKey("value")) {
-                        throw new MissingGroupException("The statRegex requires two named groups: name, value.");
-                    }
-                }
-                boolean checkMmo = !cfg.mmoMap.isEmpty();
-                Map<String, MmoStatFetcher> mmoMap = cfg.mmoMap;
-
-                // Map<mmoItemId, Map<attrName, Range>>
-                Map<String, Map<String, Range>> rangeTable = cfg.rangeTable;
-                boolean useRangeRegex = !cfg.rangeRegex.isBlank();
-                Pattern rangeRegex = useRangeRegex ? Pattern.compile(cfg.rangeRegex) : null;
-                if (useRangeRegex) {
-                    Map<String, Integer> groups = rangeRegex.namedGroups();
-                    if (!groups.containsKey("name") || !groups.containsKey("min") || !groups.containsKey("max")) {
-                        throw new MissingGroupException("The rangeRegex requires three named groups: name, min, max.");
-                    }
-                }
-                Map<String, String> nameCorrections = cfg.nameCorrections;
-                boolean displayInLoreWhenSingle = cfg.displayInLoreWhenSingle;
-                Function<Float, Integer> rarities = parseRarities(cfg.rarities);
-                MmoIdDisplayPosition idDisplayPosition = cfg.idDisplayPosition;
-
-                Function<MmoItemHelper, Double> multiplierGetter = checkRefines
-                        ? item -> 1.0 / Math.pow(refineMultiplier, item.getRefines())
-                        : item -> 1.0;
-
-                Function<ItemStack, MmoItemHelper> mmoHelperGetter =
-                        checkRefines || checkMmo || !rangeTable.isEmpty() || idDisplayPosition != MmoIdDisplayPosition.NONE
-                        ? MmoItemHelper::new
-                        : item -> null;
-
-                BiConsumer<MmoItemHelper, Map<String, ParsedStat>> mmoStatFetcher = checkMmo
-                        ? (item, stats) -> {
-                            for (ParsedStat stat : stats.values()) {
-                                MmoStatFetcher fetcher = mmoMap.get(stat.name);
-                                if (fetcher != null) fetcher.fetch(item, stat);
-                            }
-                        }
-                        : (item, stats) -> {};
-
-                Function<String, String> nameCorrector = nameCorrections.isEmpty()
-                        ? Function.identity()
-                        : name -> nameCorrections.getOrDefault(name, name);
-
-                BiConsumer<Supplier<String>, Map<String, ParsedStat>> rangeTableApplier = rangeTable.isEmpty()
-                        ? (mmoIdSupplier, stats) -> {}
-                        : (mmoIdSupplier, stats) -> {
-                            Map<String, Range> ranges = rangeTable.get(mmoIdSupplier.get());
-                            if (ranges == null) return;
-                            for (ParsedStat stat : stats.values()) {
-                                stat.assignRange(ranges.get(stat.name));
-                            }
-                        };
-
-                BiConsumer<List<String>, Map<String, ParsedStat>> rangeRegexApplier = useRangeRegex
-                        ? (lore, stats) -> {
-                            for (int i = 0; i < lore.size(); i++) {
-                                Matcher match = rangeRegex.matcher(lore.get(i));
-                                if (!match.matches()) continue;
-                                String name = match.group("name");
-                                ParsedStat stat = stats.get(nameCorrector.apply(name));
-                                if (stat != null && stat.assignRange(match)) {
-                                    stat.index = i;
-                                }
-                            }
-                        }
-                        : (lore, stats) -> {};
-
-                Function<Float, Text> percentageTagGetter = p -> {
-                    boolean high = p > 97;
-                    float precision = high ? 100.0f : 10.0f;
-                    float rounded = (float) Math.floor(p * precision) / precision;
-                    MutableText tag = InfoEssence.translatable(
-                            high ? "tooltip.percentageTag.high" : "tooltip.percentageTag",
-                            rounded
-                    );
-                    int sortHint = MathHelper.clamp((int) Math.floor(Math.log10(rounded)), 0, 9);
-                    return Text.empty()
-                            .append("§" + sortHint)
-                            .append(tag.setStyle(NO_ITALIC).withColor(rarities.apply(rounded)));
-                };
-
-
-                parser = stack -> {
-                    LoreComponent loreC = stack.get(DataComponentTypes.LORE);
-                    if (loreC == null) return;
-                    List<Text> lore = loreC.lines();
-                    List<String> loreStr = Lists.transform(lore, Text::getString);
-                    Map<String, ParsedStat> stats = new HashMap<>();
-                    for (int i = 0; i < loreStr.size(); i++) {
-                        String line = loreStr.get(i);
-                        Matcher match = statRegex.matcher(line);
-                        if (!match.matches()) continue;
-                        String name = match.group("name");
-                        stats.put(name, new ParsedStat(name, Double.parseDouble(match.group("value")), i));
-                    }
-                    MmoItemHelper mmo = mmoHelperGetter.apply(stack);
-                    mmoStatFetcher.accept(mmo, stats);
-                    rangeTableApplier.accept(mmo::getId, stats);
-                    rangeRegexApplier.accept(loreStr, stats);
-                    double multiplier = multiplierGetter.apply(mmo);
-                    List<ParsedStat> computedStats = stats.values().stream().filter(stat -> stat.calculate(multiplier)).toList();
-                    if (computedStats.isEmpty()) return;
-
-                    Text name = stack.getName();
-                    parsed.put(stack, name.getString());
-
-                    if (displayInLore && (displayInLoreWhenSingle || computedStats.size() > 1)) {
-                        List<Text> newLore = new ArrayList<>(lore);
-                        for (ParsedStat stat : computedStats) {
-                            newLore.set(stat.index, Text.empty()
-                                    .append(newLore.get(stat.index))
-                                    .append(percentageTagGetter.apply(stat.percentage))
-                            );
-                        }
-                        idDisplayPosition.action.accept(newLore, mmo::getId);
-                        stack.set(DataComponentTypes.LORE, new LoreComponent(newLore));
-                    } else if (idDisplayPosition != MmoIdDisplayPosition.NONE) {
-                        List<Text> newLore = new ArrayList<>(lore);
-                        idDisplayPosition.action.accept(newLore, mmo::getId);
-                        stack.set(DataComponentTypes.LORE, new LoreComponent(newLore));
-                    }
-                    if (displayInName) {
-                        OptionalDouble avg = computedStats.stream().mapToDouble(s -> s.percentage).average();
-                        if (avg.isPresent()) {
-                            stack.set(DataComponentTypes.CUSTOM_NAME, Text.empty()
-                                    .append(name)
-                                    .append(percentageTagGetter.apply((float) avg.getAsDouble())
-                            ));
-                        }
-                    }
-                };
-            } catch (Throwable e) {
+        try {
+            boolean checkMmoIdFirst = cfg.checkMmoIdFirst;
+            boolean displayInName = cfg.displayInName;
+            boolean displayInLore = cfg.displayInLore;
+            if (!displayInName && !displayInLore) {
                 parser = Consumers.nop();
-                throw e;
-            } finally {
-                Text warn = InfoEssence.translatable("tooltip.updateNeeded").setStyle(NO_ITALIC).formatted(Formatting.DARK_GRAY);
-                for (ItemStack stack : parsed.keySet()) {
-                    if (warned.add(stack)) {
-                        LoreComponent lore = stack.get(DataComponentTypes.LORE);
-                        if (lore == null) continue;
-                        List<Text> list = new ArrayList<>();
-                        list.add(warn);
-                        list.addAll(lore.lines());
-                        stack.set(DataComponentTypes.LORE, new LoreComponent(list));
+                return;
+            }
+            boolean checkRefines = cfg.checkRefines;
+            double refineMultiplier = cfg.refineMultiplier;
+            Pattern statRegex = Pattern.compile(cfg.statRegex);
+            {
+                Map<String, Integer> groups = statRegex.namedGroups();
+                if (!groups.containsKey("name") || !groups.containsKey("value")) {
+                    throw new MissingGroupException("The statRegex requires two named groups: name, value.");
+                }
+            }
+            boolean checkMmo = !cfg.mmoMap.isEmpty();
+            Map<String, MmoStatFetcher> mmoMap = cfg.mmoMap;
+
+            // Map<mmoItemId, Map<attrName, Range>>
+            Map<String, Map<String, Range>> rangeTable = cfg.rangeTable;
+            boolean useRangeRegex = !cfg.rangeRegex.isBlank();
+            Pattern rangeRegex = useRangeRegex ? Pattern.compile(cfg.rangeRegex) : null;
+            if (useRangeRegex) {
+                Map<String, Integer> groups = rangeRegex.namedGroups();
+                if (!groups.containsKey("name") || !groups.containsKey("min") || !groups.containsKey("max")) {
+                    throw new MissingGroupException("The rangeRegex requires three named groups: name, min, max.");
+                }
+            }
+            Map<String, String> nameCorrections = cfg.nameCorrections;
+            boolean displayInLoreWhenSingle = cfg.displayInLoreWhenSingle;
+            Function<Float, Integer> rarities = parseRarities(cfg.rarities);
+            MmoIdDisplayPosition idDisplayPosition = cfg.idDisplayPosition;
+
+            Function<MmoItemHelper, String> mmoIdGetter =
+                    checkMmoIdFirst || !rangeTable.isEmpty() || idDisplayPosition != MmoIdDisplayPosition.NONE
+                            ? MmoItemHelper::getId
+                            : item -> null;
+
+            Function<MmoItemHelper, Double> multiplierGetter = checkRefines
+                    ? item -> 1.0 / Math.pow(refineMultiplier, item.getRefines())
+                    : item -> 1.0;
+
+            Function<ItemStack, MmoItemHelper> mmoHelperGetter =
+                    checkMmoIdFirst
+                            || checkRefines
+                            || checkMmo
+                            || !rangeTable.isEmpty()
+                            || idDisplayPosition != MmoIdDisplayPosition.NONE
+                            ? MmoItemHelper::new
+                            : item -> null;
+
+            BiConsumer<MmoItemHelper, Map<String, ParsedStat>> mmoStatFetcher = checkMmo
+                    ? (item, stats) -> {
+                for (ParsedStat stat : stats.values()) {
+                    MmoStatFetcher fetcher = mmoMap.get(stat.name);
+                    if (fetcher != null) fetcher.fetch(item, stat);
+                }
+            }
+                    : (item, stats) -> {};
+
+            Function<String, String> nameCorrector = nameCorrections.isEmpty()
+                    ? Function.identity()
+                    : name -> nameCorrections.getOrDefault(name, name);
+
+            BiConsumer<Supplier<String>, Map<String, ParsedStat>> rangeTableApplier = rangeTable.isEmpty()
+                    ? (id, stats) -> {}
+                    : (id, stats) -> {
+                Map<String, Range> ranges = rangeTable.get(id.get());
+                if (ranges == null) return;
+                for (ParsedStat stat : stats.values()) {
+                    stat.assignRange(ranges.get(stat.name));
+                }
+            };
+
+            BiConsumer<List<String>, Map<String, ParsedStat>> rangeRegexApplier = useRangeRegex
+                    ? (lore, stats) -> {
+                for (int i = 0; i < lore.size(); i++) {
+                    Matcher match = rangeRegex.matcher(lore.get(i));
+                    if (!match.matches()) continue;
+                    String name = match.group("name");
+                    ParsedStat stat = stats.get(nameCorrector.apply(name));
+                    if (stat != null && stat.assignRange(match)) {
+                        stat.index = i;
                     }
+                }
+            }
+                    : (lore, stats) -> {};
+
+            Function<Float, Text> percentageTagGetter = p -> {
+                boolean high = p > 97;
+                float precision = high ? 100.0f : 10.0f;
+                float rounded = (float) Math.floor(p * precision) / precision;
+                MutableText tag = InfoEssence.translatable(
+                        high ? "tooltip.percentageTag.high" : "tooltip.percentageTag",
+                        rounded
+                );
+                int sortHint = MathHelper.clamp((int) Math.floor(Math.log10(rounded)), 0, 9);
+                return Text.empty()
+                        .append("§" + sortHint)
+                        .append(tag.setStyle(NO_ITALIC).withColor(rarities.apply(rounded)));
+            };
+
+
+            parser = stack -> {
+                MmoItemHelper mmo = mmoHelperGetter.apply(stack);
+                String mmoId = mmoIdGetter.apply(mmo);
+                if (checkMmoIdFirst && mmoId == null) return;
+                LoreComponent loreC = stack.get(DataComponentTypes.LORE);
+                if (loreC == null) return;
+                List<Text> lore = loreC.lines();
+                List<String> loreStr = Lists.transform(lore, Text::getString);
+                Map<String, ParsedStat> stats = new HashMap<>();
+                for (int i = 0; i < loreStr.size(); i++) {
+                    String line = loreStr.get(i);
+                    Matcher match = statRegex.matcher(line);
+                    if (!match.matches()) continue;
+                    String name = match.group("name");
+                    stats.put(name, new ParsedStat(name, Double.parseDouble(match.group("value")), i));
+                }
+                mmoStatFetcher.accept(mmo, stats);
+                rangeTableApplier.accept(() -> mmo.getType() + ":" + mmoId, stats);
+                rangeRegexApplier.accept(loreStr, stats);
+                double multiplier = multiplierGetter.apply(mmo);
+                List<ParsedStat> computedStats = stats.values().stream().filter(stat -> stat.calculate(multiplier)).toList();
+                if (computedStats.isEmpty()) return;
+
+                Text name = stack.getName();
+                parsed.put(stack, name.getString());
+
+                if (displayInLore && (displayInLoreWhenSingle || computedStats.size() > 1)) {
+                    List<Text> newLore = new ArrayList<>(lore);
+                    for (ParsedStat stat : computedStats) {
+                        newLore.set(stat.index, Text.empty()
+                                .append(newLore.get(stat.index))
+                                .append(percentageTagGetter.apply(stat.percentage))
+                        );
+                    }
+                    idDisplayPosition.action.accept(newLore, mmoId);
+                    stack.set(DataComponentTypes.LORE, new LoreComponent(newLore));
+                } else if (idDisplayPosition != MmoIdDisplayPosition.NONE) {
+                    List<Text> newLore = new ArrayList<>(lore);
+                    idDisplayPosition.action.accept(newLore, mmoId);
+                    stack.set(DataComponentTypes.LORE, new LoreComponent(newLore));
+                }
+                if (displayInName) {
+                    OptionalDouble avg = computedStats.stream().mapToDouble(s -> s.percentage).average();
+                    if (avg.isPresent()) {
+                        stack.set(DataComponentTypes.CUSTOM_NAME, Text.empty()
+                                .append(name)
+                                .append(percentageTagGetter.apply((float) avg.getAsDouble())
+                                ));
+                    }
+                }
+            };
+        } catch (Throwable e) {
+            parser = Consumers.nop();
+            throw e;
+        } finally {
+            Text warn = InfoEssence.translatable("tooltip.updateNeeded").setStyle(NO_ITALIC).formatted(Formatting.DARK_RED);
+            for (ItemStack stack : parsed.keySet()) {
+                if (warned.add(stack)) {
+                    LoreComponent lore = stack.get(DataComponentTypes.LORE);
+                    if (lore == null) continue;
+                    List<Text> list = new ArrayList<>();
+                    list.add(warn);
+                    list.addAll(lore.lines());
+                    stack.set(DataComponentTypes.LORE, new LoreComponent(list));
                 }
             }
         }
@@ -337,15 +345,15 @@ public class ItemStat {
 
     public enum MmoIdDisplayPosition {
         @SerializedName("NONE")
-        NONE((list, text) -> {}),
+        NONE((list, id) -> {}),
         @SerializedName("TOP")
-        TOP((texts, e) -> texts.addFirst(InfoEssence.translatable("tooltip.mmoItemId", e.get()).setStyle(NO_ITALIC).formatted(Formatting.GRAY))),
+        TOP((list, id) -> list.addFirst(InfoEssence.translatable("tooltip.mmoItemId", id).setStyle(NO_ITALIC).formatted(Formatting.DARK_GRAY))),
         @SerializedName("BOTTOM")
-        BOTTOM((texts, e) -> texts.addLast(InfoEssence.translatable("tooltip.mmoItemId", e.get()).setStyle(NO_ITALIC).formatted(Formatting.GRAY)));
+        BOTTOM((list, id) -> list.addLast(InfoEssence.translatable("tooltip.mmoItemId", id).setStyle(NO_ITALIC).formatted(Formatting.DARK_GRAY)));
 
-        public final BiConsumer<List<Text>, Supplier<String>> action;
+        public final BiConsumer<List<Text>, String> action;
 
-        MmoIdDisplayPosition(BiConsumer<List<Text>, Supplier<String>> action) {
+        MmoIdDisplayPosition(BiConsumer<List<Text>, String> action) {
             this.action = action;
         }
 
