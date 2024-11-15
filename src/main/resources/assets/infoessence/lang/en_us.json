@@ -1,5 +1,12 @@
 {
-  "infoessence.settings.category.settings": "Settings",
+  "infoessence.settings.category.general": "General",
   "infoessence.settings.enabled": "Mod Enabled",
-  "infoessence.settings.enabled.description": ""
+  "infoessence.settings.enabled.description": "",
+  "infoessence.settings.category.parser": "Parser",
+
+  "infoessence.generateParserFailed": "Failed to generate parser. Check logs for more information.",
+  "infoessence.tooltip.updateNeeded": "⚠ Item stack update needed",
+  "infoessence.tooltip.percentageTag": " [%.1f%%]",
+  "infoessence.tooltip.percentageTag.high": " [%.2f%%]",
+  "infoessence.tooltip.mmoItemId": "%s"
 }

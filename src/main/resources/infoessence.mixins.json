@@ -6,6 +6,8 @@
   "mixins": [
   ],
   "client": [
+    "MixinAnvilScreen",
+    "MixinItemStack"
   ],
   "injectors": {
     "defaultRequire": 1

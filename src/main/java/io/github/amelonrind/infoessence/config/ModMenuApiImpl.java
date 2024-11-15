@@ -50,7 +50,10 @@ public class ModMenuApiImpl implements ModMenuApi {
                             .name(translatable("category.utils"))
                             .option(optionOf("enabled", () -> cfg.enabled, val -> cfg.enabled = val))
                             .build())
-                    .save(Config.HANDLER::save)
+                    .save(() -> {
+                        Config.HANDLER.save();
+                        InfoEssence.applyConfig();
+                    })
                     .build()
                     .generateScreen(p);
         };
