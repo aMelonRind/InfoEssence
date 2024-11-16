@@ -7,7 +7,6 @@ import io.github.amelonrind.infoessence.config.Config;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.LoreComponent;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.AbstractNbtNumber;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
@@ -103,11 +102,11 @@ public class ItemStat {
 
             BiConsumer<MmoItemHelper, Map<String, ParsedStat>> mmoStatFetcher = checkMmo
                     ? (item, stats) -> {
-                for (ParsedStat stat : stats.values()) {
-                    MmoStatFetcher fetcher = mmoMap.get(stat.name);
-                    if (fetcher != null) fetcher.fetch(item, stat);
-                }
-            }
+                        for (ParsedStat stat : stats.values()) {
+                            MmoStatFetcher fetcher = mmoMap.get(stat.name);
+                            if (fetcher != null) fetcher.fetch(item, stat);
+                        }
+                    }
                     : (item, stats) -> {};
 
             Function<String, String> nameCorrector = nameCorrections.isEmpty()
@@ -126,16 +125,16 @@ public class ItemStat {
 
             BiConsumer<List<String>, Map<String, ParsedStat>> rangeRegexApplier = useRangeRegex
                     ? (lore, stats) -> {
-                for (int i = 0; i < lore.size(); i++) {
-                    Matcher match = rangeRegex.matcher(lore.get(i));
-                    if (!match.matches()) continue;
-                    String name = match.group("name");
-                    ParsedStat stat = stats.get(nameCorrector.apply(name));
-                    if (stat != null && stat.assignRange(match)) {
-                        stat.index = i;
+                        for (int i = 0; i < lore.size(); i++) {
+                            Matcher match = rangeRegex.matcher(lore.get(i));
+                            if (!match.matches()) continue;
+                            String name = match.group("name");
+                            ParsedStat stat = stats.get(nameCorrector.apply(name));
+                            if (stat != null && stat.assignRange(match)) {
+                                stat.index = i;
+                            }
+                        }
                     }
-                }
-            }
                     : (lore, stats) -> {};
 
             Function<Float, Text> percentageTagGetter = p -> {
@@ -335,8 +334,9 @@ public class ItemStat {
         }
 
         void fetch(@NotNull MmoItemHelper item, ParsedStat stat) {
-            if (item.nbt.get(key) instanceof AbstractNbtNumber ann) {
-                stat.value = ann.doubleValue() * multiplier;
+            Double v = item.getNumber(key);
+            if (v != null) {
+                stat.value = v * multiplier;
             }
         }
     }
